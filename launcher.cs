@@ -3,20 +3,24 @@
 // Copyright (c) 2026 Brightinyou
 // PolyForm Noncommercial License 1.0.0 — 같은 폴더의 LICENSE 참조
 // ------------------------------------------------------------------
-// 하는 일은 하나뿐이다. 같은 폴더의 gui.ps1 을 콘솔 창 없이 실행한다.
+// 같은 폴더의 gui.ps1 을 "이 프로세스 안에서" 실행한다.
+//
+// 왜 powershell.exe 를 따로 띄우지 않는가:
+//   외부 프로세스로 띄우면 창의 주인이 powershell.exe 가 되어, 작업표시줄과
+//   작업 관리자에 PowerShell 로 표시된다. PowerShell 런스페이스를 이 exe 안에
+//   만들고 UseCurrentThread 로 현재 STA 스레드에서 돌리면, 스크립트가 만든
+//   WinForms 창이 hwptopdf.exe 소유가 되어 아이콘·이름이 제대로 나온다.
+//
 // 실제 기능은 전부 PowerShell 쪽(core.ps1 / gui.ps1)에 있다.
-//
-// 왜 exe 가 필요한가:
-//   .vbs 로 띄우면 탐색기에서 스크립트 아이콘으로 보이고 프로그램처럼
-//   느껴지지 않는다. exe 로 감싸면 아이콘·버전 정보가 제대로 붙는다.
-//
-// 빌드: build-exe.ps1 (Windows 에 기본 포함된 csc.exe 만 사용, 외부 의존 없음)
+// 빌드: build-exe.ps1 (Windows 기본 포함 csc.exe + GAC 의 자동화 어셈블리)
 
 using System;
-using System.Diagnostics;
 using System.IO;
+using System.Management.Automation;
+using System.Management.Automation.Runspaces;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 
 [assembly: AssemblyTitle("hwptopdf")]
@@ -41,38 +45,71 @@ static class Launcher
         {
             MessageBox.Show(
                 "gui.ps1 을 찾을 수 없습니다.\n\n" +
-                "이 exe 는 같은 폴더의 스크립트를 실행합니다.\n" +
+                "이 프로그램은 같은 폴더의 스크립트를 실행합니다.\n" +
                 "폴더를 통째로 옮겨 주세요.\n\n" + dir,
                 AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 1;
         }
 
-        StringBuilder sb = new StringBuilder();
-        sb.Append("-NoProfile -ExecutionPolicy Bypass -STA -File \"").Append(script).Append("\"");
-        // 끌어다 놓은 폴더·파일 경로를 그대로 넘긴다
-        foreach (string a in args)
-        {
-            sb.Append(" \"").Append(a).Append("\"");
-        }
-
-        ProcessStartInfo psi = new ProcessStartInfo("powershell.exe", sb.ToString());
-        psi.UseShellExecute = false;
-        psi.CreateNoWindow = true;              // 콘솔 창을 띄우지 않는다
-        psi.WindowStyle = ProcessWindowStyle.Hidden;
-        psi.WorkingDirectory = dir;
+        // 스크립트를 경로로 호출해야 $PSScriptRoot 가 제대로 잡힌다.
+        // 작은따옴표 문자열이므로 경로 안의 ' 만 이스케이프한다.
+        string bootstrap =
+            "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction SilentlyContinue\r\n" +
+            "& '" + script.Replace("'", "''") + "' @args";
 
         try
         {
-            Process.Start(psi);
+            InitialSessionState iss = InitialSessionState.CreateDefault();
+            using (Runspace rs = RunspaceFactory.CreateRunspace(iss))
+            {
+                rs.ApartmentState = ApartmentState.STA;
+                // 핵심: 현재 스레드에서 실행해야 창이 이 프로세스 소유가 된다
+                rs.ThreadOptions = PSThreadOptions.UseCurrentThread;
+                rs.Open();
+
+                using (PowerShell ps = PowerShell.Create())
+                {
+                    ps.Runspace = rs;
+                    ps.AddScript(bootstrap);
+                    foreach (string a in args) { ps.AddArgument(a); }
+
+                    ps.Invoke();
+
+                    if (ps.Streams.Error.Count > 0)
+                    {
+                        StringBuilder sb = new StringBuilder();
+                        foreach (ErrorRecord e in ps.Streams.Error)
+                        {
+                            sb.AppendLine(e.ToString());
+                            if (e.InvocationInfo != null && e.InvocationInfo.ScriptLineNumber > 0)
+                            {
+                                sb.AppendLine("  (줄 " + e.InvocationInfo.ScriptLineNumber + ")");
+                            }
+                            sb.AppendLine();
+                        }
+                        MessageBox.Show(
+                            "실행 중 오류가 발생했습니다.\n\n" + Shorten(sb.ToString(), 1500),
+                            AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return 3;
+                    }
+                }
+            }
         }
         catch (Exception ex)
         {
             MessageBox.Show(
-                "실행에 실패했습니다.\n\nWindows PowerShell 을 찾을 수 없거나 차단되었을 수 있습니다.\n\n" + ex.Message,
+                "실행에 실패했습니다.\n\n" + ex.Message,
                 AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 2;
         }
 
         return 0;
+    }
+
+    static string Shorten(string s, int max)
+    {
+        if (s == null) { return ""; }
+        s = s.Trim();
+        return s.Length <= max ? s : s.Substring(0, max) + "\n...";
     }
 }

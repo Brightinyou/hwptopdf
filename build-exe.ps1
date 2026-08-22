@@ -24,6 +24,12 @@ try {
     $csc = Join-Path $fw 'csc.exe'
     if (-not (Test-Path $csc)) { throw "csc.exe 를 찾을 수 없습니다: $csc  (.NET Framework 4.x 필요)" }
 
+    # PowerShell 호스팅용 어셈블리 (GAC). exe 안에서 스크립트를 직접 돌리기 위해 필요하다.
+    $smaDir = Join-Path $env:WINDIR 'Microsoft.NET\assembly\GAC_MSIL\System.Management.Automation'
+    $sma = Get-ChildItem $smaDir -Recurse -Filter 'System.Management.Automation.dll' -ErrorAction SilentlyContinue |
+           Sort-Object FullName -Descending | Select-Object -First 1
+    if (-not $sma) { throw "System.Management.Automation.dll 을 찾을 수 없습니다 (Windows PowerShell 필요)" }
+
     $args = @(
         '/nologo'
         '/target:winexe'          # 콘솔 창 없음
@@ -34,6 +40,7 @@ try {
         "/reference:$(Join-Path $fw 'System.dll')"
         "/reference:$(Join-Path $fw 'System.Windows.Forms.dll')"
         "/reference:$(Join-Path $fw 'System.Drawing.dll')"
+        "/reference:$($sma.FullName)"
         'launcher.cs'
     )
 
