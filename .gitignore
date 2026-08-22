@@ -1,0 +1,9 @@
+﻿# 빌드 부산물
+*.pdb
+*.obj
+dist/
+installer/staging/
+
+# 변환 결과물이 실수로 들어오는 것 방지
+*_변환PDF/
+변환로그_*.txt

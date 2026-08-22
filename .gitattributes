@@ -1,0 +1,21 @@
+# Windows 전용 도구 — 텍스트 파일은 반드시 CRLF로 체크아웃한다.
+#
+# 중요: .bat / .vbs 가 LF 줄바꿈으로 체크아웃되면 cmd.exe 가 파일 위치를
+# 잘못 추적해서, pause 이후 배치가 다시 실행되는 오작동이 일어난다.
+# 실제로 겪은 문제이므로 여기서 못박아 둔다.
+
+* text=auto eol=crlf
+
+*.bat text eol=crlf
+*.vbs text eol=crlf
+*.ps1 text eol=crlf
+*.cs  text eol=crlf
+*.md  text eol=crlf
+*.txt text eol=crlf
+
+# 바이너리 — 줄바꿈 변환 금지
+*.ico binary
+*.exe binary
+*.pdf binary
+*.hwp binary
+*.hwpx binary
