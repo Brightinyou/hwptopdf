@@ -98,6 +98,12 @@ $chkForce.Size = New-Object System.Drawing.Size(230, 24)
 # 원본과 PDF의 페이지 수 대조는 항상 수행한다 (끌 수 없음).
 # 잘린 PDF를 놓치면 뒤늦게 발견하기 어려워서 선택지로 두지 않았다.
 
+$chkSame = New-Object System.Windows.Forms.CheckBox
+$chkSame.Text = "PDF를 원본과 같은 폴더에 만들기 (하위 폴더 없이)"
+$chkSame.Location = New-Object System.Drawing.Point(254, 70)
+$chkSame.Size = New-Object System.Drawing.Size(330, 24)
+$chkSame.Checked = [bool](Get-AppSettings)['SameFolder']
+
 $lv = New-Object System.Windows.Forms.ListView
 $lv.Location = New-Object System.Drawing.Point(14, 100)
 $lv.Size = New-Object System.Drawing.Size(912, 330)
@@ -177,7 +183,7 @@ $btnAbout.Size = New-Object System.Drawing.Size(64, 30)
 $btnAbout.Anchor = 'Left,Bottom'
 
 $form.Controls.AddRange(@(
-    $lblPath, $tbPath, $btnBrowse, $btnScan, $chkForce,
+    $lblPath, $tbPath, $btnBrowse, $btnScan, $chkForce, $chkSame,
     $lv, $bar, $lblStatus, $tbReport,
     $btnStart, $btnStop, $btnAbout, $btnOpen, $btnLog, $btnClose
 ))
@@ -306,7 +312,7 @@ function Do-Scan {
         Set-Status "폴더를 훑는 중... (하위 폴더까지 찾습니다)"
         $form.Refresh()
 
-        $r = Get-HwpJobs -Targets @($p)
+        $r = Get-HwpJobs -Targets @($p) -SameFolder:$chkSame.Checked
         $script:jobs = @($r.Jobs)
 
         # 결과 폴더(기록이 저장되고 [결과 폴더 열기]가 여는 곳)
@@ -386,6 +392,7 @@ function Do-Convert {
     $bar.Value = 0
 
     $session = $null
+    $pdfPrinter = $null
     $ok = 0; $skip = 0; $warn = 0; $fail = 0
     $lines = New-Object System.Collections.Generic.List[string]
     $started = Get-Date
@@ -396,6 +403,13 @@ function Do-Convert {
         $session = New-HwpSession
         if (-not $session.Secured) {
             Add-Report "안내 - 보안 승인 모듈이 등록되어 있지 않습니다. 한글 팝업이 뜰 수 있습니다. (설치.bat 실행)"
+        }
+        $pdfPrinter = $session.PdfPrinter
+        if ($session.PdfPrinter) {
+            Add-Report "안내 - 모아찍기가 켜진 문서는 '$($session.PdfPrinter)' 로 다시 뽑아 한 쪽씩 저장합니다."
+        } else {
+            Add-Report "주의 - 쓸 수 있는 PDF 프린터가 없어, 모아찍기가 켜진 문서를 바로잡을 수 없습니다."
+            Add-Report "       (아래 [정보] 버튼 옆 안내 참고 — Hancom PDF 또는 Microsoft Print to PDF 필요)"
         }
 
         for ($i = 0; $i -lt $script:jobs.Count; $i++) {
@@ -417,13 +431,13 @@ function Do-Convert {
                     $it.SubItems[2].Text = "완료"; $it.ForeColor = $C_OK
                     if ($r.SrcPages -gt 0) { $it.SubItems[3].Text = "$($r.SrcPages)" }
                     $it.SubItems[4].Text = Format-Size $r.Size
-                    $lines.Add("OK    $($j.Name)")
+                    $lines.Add("OK    $($j.Src)")
                 }
                 'skip' {
                     $skip++
                     $it.SubItems[2].Text = "건너뜀"; $it.ForeColor = $C_SKIP
                     $it.SubItems[5].Text = "이미 PDF 있음"
-                    $lines.Add("SKIP  $($j.Name)")
+                    $lines.Add("SKIP  $($j.Src)")
                 }
                 'warn' {
                     $warn++
@@ -431,15 +445,38 @@ function Do-Convert {
                     $it.SubItems[3].Text = "$($r.SrcPages)→$($r.PdfPages)"
                     $it.SubItems[4].Text = Format-Size $r.Size
                     $it.SubItems[5].Text = $r.Message
-                    $lines.Add("WARN  $($j.Name) : $($r.Message)")
-                    Add-Report "확인필요 - $($j.Name) : $($r.Message)"
+                    # 나중에 어느 파일인지 찾을 수 있도록 전체 경로를 남긴다
+                    $lines.Add("WARN  $($j.Src)")
+                    $lines.Add("        $($r.Message)")
+                    Add-Report "확인필요 - $($r.Message)"
+                    Add-Report "           $($j.Src)"
                 }
                 default {
                     $fail++
                     $it.SubItems[2].Text = "실패"; $it.ForeColor = $C_FAIL
                     $it.SubItems[5].Text = $r.Message
-                    $lines.Add("FAIL  $($j.Name) : $($r.Message)")
-                    Add-Report "실패 - $($j.Name) : $($r.Message)"
+                    $lines.Add("FAIL  $($j.Src)")
+                    $lines.Add("        $($r.Message)")
+                    Add-Report "실패 - $($r.Message)"
+                    Add-Report "       $($j.Src)"
+
+                    # 한글이 죽은 경우(RPC_E_SERVERFAULT 등) 뒤 파일이 모두 연쇄로
+                    # 실패한다. 연결이 끊겼으면 새로 열고 계속한다.
+                    if (-not (Test-HwpSessionAlive $session)) {
+                        Add-Report "       한글 연결이 끊겨 다시 연결합니다..."
+                        Set-Status "한글 연결이 끊겨 다시 연결하는 중..."
+                        [System.Windows.Forms.Application]::DoEvents()
+                        Close-HwpSession $session
+                        $session = $null
+                        try {
+                            $session = New-HwpSession
+                            $lines.Add("        (한글 연결이 끊겨 재연결함)")
+                        } catch {
+                            Add-Report "       다시 연결하지 못했습니다. 여기서 중단합니다."
+                            $lines.Add("        (한글 재연결 실패 — 중단)")
+                            break
+                        }
+                    }
                 }
             }
 
@@ -475,6 +512,22 @@ function Do-Convert {
         Add-Report ("  걸린 시간 : {0}분 {1}초" -f [int]$elapsed.TotalMinutes, $elapsed.Seconds)
         Add-Report ("  저장 위치 : {0}" -f $script:outRoot)
         if ($script:logPath) { Add-Report ("  기록 파일 : {0}" -f (Split-Path $script:logPath -Leaf)) }
+        if ($warn -gt 0 -and -not $pdfPrinter) {
+            [System.Windows.Forms.MessageBox]::Show($form,
+                "쪽수가 맞지 않는 파일이 $warn 개 있습니다.`n`n" +
+                "문서에 '모아 찍기'가 켜져 있으면 한 장에 여러 쪽이 들어가 이렇게 됩니다.`n" +
+                "이 프로그램은 그런 경우 PDF 프린터로 다시 뽑아 바로잡는데,`n" +
+                "지금 이 PC에는 쓸 수 있는 PDF 프린터가 없습니다.`n`n" +
+                "다음 중 하나를 설치하면 자동으로 해결됩니다.`n`n" +
+                "  · Hancom PDF  — 한컴오피스 설치 시 함께 제공됩니다.`n" +
+                "    한컴오피스 설치 관리자에서 다시 설치하거나,`n" +
+                "    한글 설치 폴더의 HancomPDF\SetupDriver.exe 를 실행하세요.`n`n" +
+                "  · Microsoft Print to PDF — Windows 기본 기능입니다.`n" +
+                "    [설정] → [Bluetooth 및 장치] → [프린터 및 스캐너] 에서 추가하거나,`n" +
+                "    [Windows 기능 켜기/끄기] 에서 켤 수 있습니다.",
+                "PDF 프린터가 없습니다", 'OK', 'Information') | Out-Null
+        }
+
         if ($warn -gt 0) {
             Add-Report ""
             Add-Report "  [확인필요] 원본과 PDF의 쪽수가 다른 경우입니다. 두 가지로 갈립니다."
@@ -518,6 +571,12 @@ $btnBrowse.Add_Click({
 })
 
 $btnScan.Add_Click({ Do-Scan })
+
+# 출력 위치 선택은 기억해 둔다. 바꾸면 목록도 다시 만든다.
+$chkSame.Add_CheckedChanged({
+    Save-AppSettings @{ SameFolder = [bool]$chkSame.Checked }
+    if (-not $script:running -and $script:jobs.Count -gt 0) { Do-Scan }
+})
 $btnStart.Add_Click({ Do-Convert })
 $btnStop.Add_Click({ $script:cancel = $true; Set-Status "중단하는 중... 현재 파일까지만 끝냅니다." })
 

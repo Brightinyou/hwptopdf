@@ -27,7 +27,9 @@ param(
 
     [Parameter()][switch]$Force,
     [Parameter()][string]$OutDir,
-    [Parameter()][switch]$NoVerify
+    [Parameter()][switch]$NoVerify,
+    # PDF를 원본과 같은 폴더에 만든다 (하위 폴더를 만들지 않음)
+    [Parameter()][switch]$SameFolder
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,7 +48,7 @@ if (-not [Type]::GetTypeFromProgID('HWPFrame.HwpObject')) {
     exit 2
 }
 
-$r = Get-HwpJobs -Targets $Targets -OutDir $OutDir
+$r = Get-HwpJobs -Targets $Targets -OutDir $OutDir -SameFolder:$SameFolder
 $jobs = @($r.Jobs)
 foreach ($s in $r.Skipped) { Say "제외 — $s" 'Yellow' }
 
@@ -82,11 +84,39 @@ foreach ($j in $jobs) {
             $kb = [math]::Round($res.Size / 1KB)
             if ($res.SrcPages -gt 0) { Say "완료 ($($res.SrcPages)쪽, ${kb}KB)" 'Green' }
             else { Say "완료 (${kb}KB)" 'Green' }
-            $lines.Add("OK    $($j.Name)")
+            $lines.Add("OK    $($j.Src)")
         }
-        'skip' { $skip++; Say "건너뜀" 'DarkGray'; $lines.Add("SKIP  $($j.Name)") }
-        'warn' { $warn++; Say "확인 필요 ($($res.Message))" 'Yellow'; $lines.Add("WARN  $($j.Name) : $($res.Message)") }
-        default { $fail++; Say "실패 — $($res.Message)" 'Red'; $lines.Add("FAIL  $($j.Name) : $($res.Message)") }
+        'skip' { $skip++; Say "건너뜀" 'DarkGray'; $lines.Add("SKIP  $($j.Src)") }
+        'warn' {
+            $warn++
+            Say "확인 필요 — $($res.Message)" 'Yellow'
+            Say "           $($j.Src)" 'DarkGray'
+            # 나중에 어느 파일인지 찾을 수 있도록 전체 경로를 남긴다
+            $lines.Add("WARN  $($j.Src)")
+            $lines.Add("        $($res.Message)")
+        }
+        default {
+            $fail++
+            Say "실패 — $($res.Message)" 'Red'
+            Say "       $($j.Src)" 'DarkGray'
+            $lines.Add("FAIL  $($j.Src)")
+            $lines.Add("        $($res.Message)")
+
+            # 한글이 죽으면(RPC_E_SERVERFAULT 등) 뒤 파일이 모두 연쇄로 실패한다.
+            if (-not (Test-HwpSessionAlive $session)) {
+                Say "       한글 연결이 끊겨 다시 연결합니다..." 'Yellow'
+                Close-HwpSession $session
+                $session = $null
+                try {
+                    $session = New-HwpSession
+                    $lines.Add("        (한글 연결이 끊겨 재연결함)")
+                } catch {
+                    Say "       다시 연결하지 못했습니다. 중단합니다." 'Red'
+                    $lines.Add("        (한글 재연결 실패 — 중단)")
+                    break
+                }
+            }
+        }
     }
 }
 
