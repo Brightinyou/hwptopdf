@@ -477,9 +477,15 @@ function Do-Convert {
         if ($script:logPath) { Add-Report ("  기록 파일 : {0}" -f (Split-Path $script:logPath -Leaf)) }
         if ($warn -gt 0) {
             Add-Report ""
-            Add-Report "  [확인필요] 한글에 남아 있던 인쇄 범위 설정 때문에 문서 일부만"
-            Add-Report "  저장됐을 수 있습니다. 한글에서 그 문서를 열어 [파일]-[인쇄] 범위를"
-            Add-Report "  '문서 전체'로 바꾼 뒤, 위 '다시 변환'을 켜고 다시 실행하세요."
+            Add-Report "  [확인필요] 원본과 PDF의 쪽수가 다른 경우입니다. 두 가지로 갈립니다."
+            Add-Report ""
+            Add-Report "  · '모아찍기 N쪽 추정' — 문서에 모아 찍기가 켜져 있어 한 장에 여러 쪽이"
+            Add-Report "    들어간 것입니다. 내용은 다 있으니 그대로 두셔도 됩니다."
+            Add-Report "    한 쪽씩 나오게 하려면 한글에서 그 문서를 열어 [파일]-[인쇄]의"
+            Add-Report "    '모아 찍기'를 끄고 저장한 뒤, 위 '다시 변환'을 켜고 다시 실행하세요."
+            Add-Report ""
+            Add-Report "  · '일부만 저장됐을 수 있습니다' — 인쇄 범위가 문서 전체가 아닐 수"
+            Add-Report "    있습니다. [파일]-[인쇄] 범위를 '문서 전체'로 바꾼 뒤 다시 변환하세요."
         }
 
         $script:running = $false

@@ -171,6 +171,33 @@ function Close-HwpSession {
     try { [Runtime.InteropServices.Marshal]::ReleaseComObject($Session.Hwp) | Out-Null } catch { }
 }
 
+# 원본과 PDF의 쪽수가 다를 때, 왜 그런지 짚어 준다.
+#
+# 가장 흔한 원인은 '모아 찍기'다. 문서에 2쪽·4쪽 모아 찍기가 켜져 있으면
+# 8쪽짜리가 4쪽·2쪽 PDF로 나온다. 내용이 빠진 게 아니라 한 장에 여러 쪽을
+# 앉힌 것이므로, 잘림(일부만 저장)과 구분해서 알려 줘야 한다.
+function Get-MismatchReason {
+    param([int]$SrcPages, [int]$PdfPages, [int]$Layout = 0)
+
+    if ($PdfPages -le 0 -or $SrcPages -le 0) {
+        return "원본 ${SrcPages}쪽 / PDF ${PdfPages}쪽"
+    }
+
+    # 한글의 모아 찍기 선택지. 작은 값부터 검사해야 과하게 추정하지 않는다.
+    foreach ($n in 2, 3, 4, 6, 8, 9, 16) {
+        if ($PdfPages -eq [math]::Ceiling($SrcPages / $n)) {
+            return "모아찍기 ${n}쪽 추정 (원본 ${SrcPages}쪽 → PDF ${PdfPages}쪽). 내용 누락은 아닙니다"
+        }
+    }
+
+    if ($PdfPages -lt $SrcPages) {
+        $tail = if ($Layout -ne 0) { " (문서의 모아찍기 설정 PageLayout=$Layout)" } else { "" }
+        return "원본 ${SrcPages}쪽 / PDF ${PdfPages}쪽 — 일부만 저장됐을 수 있습니다$tail"
+    }
+
+    return "원본 ${SrcPages}쪽 / PDF ${PdfPages}쪽 — PDF 쪽수가 더 많습니다"
+}
+
 # 파일 하나 변환.
 # 반환: Status = skip | ok | warn | fail
 function Convert-OneHwp {
@@ -182,7 +209,7 @@ function Convert-OneHwp {
     )
 
     $r = [PSCustomObject]@{
-        Status = 'fail'; SrcPages = 0; PdfPages = 0; Size = 0; Message = ''
+        Status = 'fail'; SrcPages = 0; PdfPages = 0; Size = 0; Message = ''; Layout = 0
     }
 
     if ((-not $Force) -and (Test-Path -LiteralPath $Job.Pdf)) {
@@ -207,7 +234,17 @@ function Convert-OneHwp {
         if (-not $hwp.Open($Job.Src, "", "forceopen:true")) { throw "파일을 열지 못했습니다" }
 
         # 문서가 열려 있는 동안 원본 페이지 수를 읽어둔다 (검증용)
-        if ($Verify) { try { $r.SrcPages = [int]$hwp.PageCount } catch { $r.SrcPages = 0 } }
+        if ($Verify) {
+            try { $r.SrcPages = [int]$hwp.PageCount } catch { $r.SrcPages = 0 }
+            # 문서에 저장된 인쇄 설정의 '모아 찍기'(PageLayout) 값도 같이 읽어둔다.
+            # 쪽수가 안 맞을 때 원인을 짚어 주기 위한 참고값이다.
+            try {
+                $act = $hwp.CreateAction("Print")
+                $pset = $hwp.HParameterSet.HPrint
+                $null = $act.GetDefault($pset.HSet)
+                $r.Layout = [int]$pset.PageLayout
+            } catch { $r.Layout = 0 }
+        }
 
         $saved = $hwp.SaveAs($Job.Pdf, "PDF", "")
         try { $null = $hwp.Run("FileClose") } catch { }
@@ -222,7 +259,7 @@ function Convert-OneHwp {
             $r.PdfPages = Get-PdfPageCount $Job.Pdf
             if ($r.PdfPages -gt 0 -and $r.PdfPages -ne $r.SrcPages) {
                 $r.Status = 'warn'
-                $r.Message = "원본 $($r.SrcPages)쪽 / PDF $($r.PdfPages)쪽"
+                $r.Message = Get-MismatchReason -SrcPages $r.SrcPages -PdfPages $r.PdfPages -Layout $r.Layout
                 return $r
             }
         }
