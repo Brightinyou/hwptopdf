@@ -22,7 +22,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'core.ps1')
 
 $APP_NAME    = 'hwptopdf'
-$APP_VERSION = '1.0'
+$APP_VERSION = '1.1'
 $APP_DESC    = '한글 문서 PDF 일괄 변환'
 $APP_AUTHOR  = 'Brightinyou'
 $APP_YEAR    = '2026'

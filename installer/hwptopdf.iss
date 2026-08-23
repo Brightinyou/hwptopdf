@@ -10,7 +10,7 @@
 ; 사용자별(HKCU) 설정이라 관리자 권한이 필요 없다.
 
 #define AppName    "hwptopdf"
-#define AppVersion "1.0"
+#define AppVersion "1.1"
 #define AppPub     "Brightinyou"
 #define AppUrl     "https://github.com/Brightinyou/hwptopdf"
 

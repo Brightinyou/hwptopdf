@@ -28,8 +28,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("한글 문서 PDF 일괄 변환")]
 [assembly: AssemblyCompany("Brightinyou")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 Brightinyou")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.1.0.0")]
 
 static class Launcher
 {
