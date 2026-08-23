@@ -98,11 +98,25 @@ $chkForce.Size = New-Object System.Drawing.Size(230, 24)
 # 원본과 PDF의 페이지 수 대조는 항상 수행한다 (끌 수 없음).
 # 잘린 PDF를 놓치면 뒤늦게 발견하기 어려워서 선택지로 두지 않았다.
 
-$chkSame = New-Object System.Windows.Forms.CheckBox
-$chkSame.Text = "PDF를 원본과 같은 폴더에 만들기 (하위 폴더 없이)"
-$chkSame.Location = New-Object System.Drawing.Point(254, 70)
-$chkSame.Size = New-Object System.Drawing.Size(330, 24)
-$chkSame.Checked = [bool](Get-AppSettings)['SameFolder']
+# PDF를 어디에 만들지 — 둘 중 하나만 고르는 것이므로 라디오 버튼으로 둔다.
+$sameFolderPref = [bool](Get-AppSettings)['SameFolder']
+
+$lblOut = New-Object System.Windows.Forms.Label
+$lblOut.Text = "PDF 위치:"
+$lblOut.Location = New-Object System.Drawing.Point(258, 73)
+$lblOut.Size = New-Object System.Drawing.Size(64, 20)
+
+$rdoSub = New-Object System.Windows.Forms.RadioButton
+$rdoSub.Text = "하위 폴더에 만들기 ([폴더이름]_변환PDF)"
+$rdoSub.Location = New-Object System.Drawing.Point(324, 70)
+$rdoSub.Size = New-Object System.Drawing.Size(268, 24)
+$rdoSub.Checked = (-not $sameFolderPref)
+
+$rdoSame = New-Object System.Windows.Forms.RadioButton
+$rdoSame.Text = "원본과 같은 폴더에 만들기"
+$rdoSame.Location = New-Object System.Drawing.Point(600, 70)
+$rdoSame.Size = New-Object System.Drawing.Size(190, 24)
+$rdoSame.Checked = $sameFolderPref
 
 $lv = New-Object System.Windows.Forms.ListView
 $lv.Location = New-Object System.Drawing.Point(14, 100)
@@ -183,7 +197,7 @@ $btnAbout.Size = New-Object System.Drawing.Size(64, 30)
 $btnAbout.Anchor = 'Left,Bottom'
 
 $form.Controls.AddRange(@(
-    $lblPath, $tbPath, $btnBrowse, $btnScan, $chkForce, $chkSame,
+    $lblPath, $tbPath, $btnBrowse, $btnScan, $chkForce, $lblOut, $rdoSub, $rdoSame,
     $lv, $bar, $lblStatus, $tbReport,
     $btnStart, $btnStop, $btnAbout, $btnOpen, $btnLog, $btnClose
 ))
@@ -312,7 +326,7 @@ function Do-Scan {
         Set-Status "폴더를 훑는 중... (하위 폴더까지 찾습니다)"
         $form.Refresh()
 
-        $r = Get-HwpJobs -Targets @($p) -SameFolder:$chkSame.Checked
+        $r = Get-HwpJobs -Targets @($p) -SameFolder:$rdoSame.Checked
         $script:jobs = @($r.Jobs)
 
         # 결과 폴더(기록이 저장되고 [결과 폴더 열기]가 여는 곳)
@@ -387,6 +401,7 @@ function Do-Convert {
     $script:done = $false
     $btnStart.Enabled = $false; $btnScan.Enabled = $false; $btnBrowse.Enabled = $false
     $chkForce.Enabled = $false; $tbPath.Enabled = $false
+    $rdoSub.Enabled = $false; $rdoSame.Enabled = $false
     $btnStop.Enabled = $true
     $tbReport.Clear()
     $bar.Value = 0
@@ -545,6 +560,7 @@ function Do-Convert {
         $script:done = $true
         $btnStart.Enabled = $true; $btnScan.Enabled = $true; $btnBrowse.Enabled = $true
         $chkForce.Enabled = $true; $tbPath.Enabled = $true
+        $rdoSub.Enabled = $true; $rdoSame.Enabled = $true
         $btnStop.Enabled = $false
         $btnOpen.Enabled = ($script:outRoot -and (Test-Path -LiteralPath $script:outRoot))
         $btnLog.Enabled = ($null -ne $script:logPath)
@@ -573,8 +589,9 @@ $btnBrowse.Add_Click({
 $btnScan.Add_Click({ Do-Scan })
 
 # 출력 위치 선택은 기억해 둔다. 바꾸면 목록도 다시 만든다.
-$chkSame.Add_CheckedChanged({
-    Save-AppSettings @{ SameFolder = [bool]$chkSame.Checked }
+# 둘 중 하나만 처리하면 된다 — 다른 쪽을 눌러도 이 이벤트가 함께 발생한다.
+$rdoSame.Add_CheckedChanged({
+    Save-AppSettings @{ SameFolder = [bool]$rdoSame.Checked }
     if (-not $script:running -and $script:jobs.Count -gt 0) { Do-Scan }
 })
 $btnStart.Add_Click({ Do-Convert })
